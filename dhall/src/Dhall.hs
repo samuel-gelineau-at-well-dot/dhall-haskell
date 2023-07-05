@@ -48,7 +48,9 @@ module Dhall
     ) where
 
 import Control.Applicative    (Alternative, empty)
+import Control.Monad.Writer   (WriterT, execWriterT, tell)
 import Data.Either.Validation (Validation (..))
+import Data.Foldable          (for_)
 import Data.Void              (Void)
 import Dhall.Import           (Imported (..))
 import Dhall.Parser           (Src (..))
@@ -321,6 +323,19 @@ inputExprWithSettings
     -> IO (Expr Src Void)
     -- ^ The fully normalized AST
 inputExprWithSettings = inputHelper id
+
+extractPaths :: Expr Src Core.Import -> IO [FilePath]
+extractPaths expr = execWriterT $ do
+  for_ expr $ \import_ -> do
+     importToFilePaths . Core.importType . Core.importHashed $ import_
+  where
+    importToFilePaths :: Core.ImportType -> WriterT [FilePath] IO ()
+    importToFilePaths (Core.Local filePrefix file) = do
+      path <- Dhall.Import.localToPath filePrefix file
+      tell [path]
+    importToFilePaths _ = do
+      pure ()
+
 
 {-| Helper function for the input* function family
 
