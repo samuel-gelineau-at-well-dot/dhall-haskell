@@ -93,7 +93,7 @@ staticDhallExpression :: Text -> Q Exp
 staticDhallExpression text = do
     Syntax.runIO (GHC.IO.Encoding.setLocaleEncoding System.IO.utf8)
 
-    (expression, importedFilePaths) <- Syntax.runIO (Dhall.inputExpr text)
+    (expression, importedFilePaths) <- Syntax.runIO (Dhall.inputExprWithImportedFilePaths text)
 
     addDependentFiles importedFilePaths
 
@@ -609,7 +609,7 @@ makeHaskellTypesWith generateOptions haskellTypes = do
     (haskellTypes', importedFilePaths) <- runWriterT $ do
         for haskellTypes $ \haskellType -> do
             for haskellType $ \expr -> do
-                (expr', importedFilePaths) <- liftIO . Dhall.inputExpr $ expr
+                (expr', importedFilePaths) <- liftIO . Dhall.inputExprWithImportedFilePaths $ expr
                 tell importedFilePaths
                 pure expr'
 

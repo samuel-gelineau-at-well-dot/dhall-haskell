@@ -308,10 +308,18 @@ inputFileWithSettings settings ty path = do
 inputExpr
     :: Text
     -- ^ The Dhall program
-    -> IO (Expr Src Void, [FilePath])
-    -- ^ The fully normalized AST and imported file paths
+    -> IO (Expr Src Void)
+    -- ^ The fully normalized AST
 inputExpr =
   inputExprWithSettings defaultInputSettings
+
+inputExprWithImportedFilePaths
+    :: Text
+    -- ^ The Dhall program
+    -> IO (Expr Src Void, [FilePath])
+    -- ^ The fully normalized AST and imported file paths
+inputExprWithImportedFilePaths =
+  inputExprWithSettingsAndImportedLocalFiles defaultInputSettings
 
 {-| Extend 'inputExpr' with a root directory to resolve imports relative
     to, a file to mention in errors as the source, a custom typing
@@ -323,9 +331,19 @@ inputExprWithSettings
     :: InputSettings
     -> Text
     -- ^ The Dhall program
+    -> IO (Expr Src Void)
+    -- ^ The fully normalized AST
+inputExprWithSettings settings txt = do
+  (expr, _) <- inputHelper id settings txt
+  pure expr
+
+inputExprWithSettingsAndImportedLocalFiles
+    :: InputSettings
+    -> Text
+    -- ^ The Dhall program
     -> IO (Expr Src Void, [FilePath])
     -- ^ The fully normalized AST and imported files
-inputExprWithSettings = inputHelper id
+inputExprWithSettingsAndImportedLocalFiles = inputHelper id
 
 extractPaths :: Expr Src Core.Import -> IO [FilePath]
 extractPaths expr = execWriterT $ do
