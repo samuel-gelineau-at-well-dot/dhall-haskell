@@ -19,7 +19,11 @@ module Dhall.TH
     , defaultGenerateOptions
     ) where
 
+import Control.Monad.IO.Class    (liftIO)
+import Control.Monad.Writer      (runWriterT, tell)
 import Data.Bifunctor            (first)
+import Data.Foldable             (for_)
+import Data.Traversable          (for)
 import Data.Text                 (Text)
 import Dhall                     (FromDhall, ToDhall)
 import Dhall.Syntax              (Expr (..), FunctionBinding (..), Var (..))
@@ -89,7 +93,9 @@ staticDhallExpression :: Text -> Q Exp
 staticDhallExpression text = do
     Syntax.runIO (GHC.IO.Encoding.setLocaleEncoding System.IO.utf8)
 
-    expression <- Syntax.runIO (Dhall.inputExpr text)
+    (expression, importedFilePaths) <- Syntax.runIO (Dhall.inputExpr text)
+
+    addDependentFiles importedFilePaths
 
     dataToExpQ (fmap liftText . Typeable.cast) expression
   where
@@ -600,6 +606,18 @@ makeHaskellTypesWith :: GenerateOptions -> [HaskellType Text] -> Q [Dec]
 makeHaskellTypesWith generateOptions haskellTypes = do
     Syntax.runIO (GHC.IO.Encoding.setLocaleEncoding System.IO.utf8)
 
-    haskellTypes' <- traverse (traverse (Syntax.runIO . Dhall.inputExpr)) haskellTypes
+    (haskellTypes', importedFilePaths) <- runWriterT $ do
+        for haskellTypes $ \haskellType -> do
+            for haskellType $ \expr -> do
+                (expr', importedFilePaths) <- liftIO . Dhall.inputExpr $ expr
+                tell importedFilePaths
+                pure expr'
+
+    addDependentFiles importedFilePaths
 
     concat <$> traverse (toDeclaration generateOptions haskellTypes') haskellTypes'
+
+addDependentFiles :: [FilePath] -> Q ()
+addDependentFiles importedFilePaths = do
+    for_ importedFilePaths $ \importedFilePath -> do
+        Syntax.addDependentFile importedFilePath

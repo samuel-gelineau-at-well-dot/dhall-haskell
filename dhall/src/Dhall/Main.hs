@@ -820,9 +820,9 @@ command (Options {..}) = do
                 explain
 
         Diff {..} -> do
-            expression1 <- Dhall.inputExpr expr1
+            (expression1, _) <- Dhall.inputExpr expr1
 
-            expression2 <- Dhall.inputExpr expr2
+            (expression2, _) <- Dhall.inputExpr expr2
 
             let diff = Dhall.Diff.diffNormalized expression1 expression2
 

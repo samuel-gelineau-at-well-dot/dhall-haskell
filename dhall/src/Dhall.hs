@@ -73,6 +73,7 @@ import qualified Dhall.Parser
 import qualified Dhall.Pretty.Internal
 import qualified Dhall.Substitution
 import qualified Dhall.TypeCheck
+import qualified Language.Haskell.TH.Syntax as TH
 import qualified Lens.Family
 
 import Dhall.Marshal.Decode
@@ -221,7 +222,7 @@ input
     -- ^ The decoder for the Dhall value
     -> Text
     -- ^ The Dhall program
-    -> IO a
+    -> IO (a, [FilePath])
     -- ^ The decoded value in Haskell
 input =
   inputWithSettings defaultInputSettings
@@ -238,7 +239,7 @@ inputWithSettings
     -- ^ The decoder for the Dhall value
     -> Text
     -- ^ The Dhall program
-    -> IO a
+    -> IO (a, [FilePath])
     -- ^ The decoded value in Haskell
 inputWithSettings settings (Decoder {..}) txt = do
     expected' <- case expected of
@@ -254,10 +255,10 @@ inputWithSettings settings (Decoder {..}) txt = do
             _ ->
                 Annot substituted expected'
 
-    normExpr <- inputHelper annotate settings txt
+    (normExpr, importedFilePaths) <- inputHelper annotate settings txt
 
     case extract normExpr  of
-        Success x  -> return x
+        Success x  -> return (x, importedFilePaths)
         Failure e -> Control.Exception.throwIO e
 
 {-| Type-check and evaluate a Dhall program that is read from the
@@ -272,7 +273,7 @@ inputFile
   -- ^ The decoder for the Dhall value
   -> FilePath
   -- ^ The path to the Dhall program.
-  -> IO a
+  -> IO (a, [FilePath])
   -- ^ The decoded value in Haskell.
 inputFile =
   inputFileWithSettings defaultEvaluateSettings
@@ -288,7 +289,7 @@ inputFileWithSettings
   -- ^ The decoder for the Dhall value
   -> FilePath
   -- ^ The path to the Dhall program.
-  -> IO a
+  -> IO (a, [FilePath])
   -- ^ The decoded value in Haskell.
 inputFileWithSettings settings ty path = do
   text <- Data.Text.IO.readFile path
@@ -307,8 +308,8 @@ inputFileWithSettings settings ty path = do
 inputExpr
     :: Text
     -- ^ The Dhall program
-    -> IO (Expr Src Void)
-    -- ^ The fully normalized AST
+    -> IO (Expr Src Void, [FilePath])
+    -- ^ The fully normalized AST and imported file paths
 inputExpr =
   inputExprWithSettings defaultInputSettings
 
@@ -322,8 +323,8 @@ inputExprWithSettings
     :: InputSettings
     -> Text
     -- ^ The Dhall program
-    -> IO (Expr Src Void)
-    -- ^ The fully normalized AST
+    -> IO (Expr Src Void, [FilePath])
+    -- ^ The fully normalized AST and imported files
 inputExprWithSettings = inputHelper id
 
 extractPaths :: Expr Src Core.Import -> IO [FilePath]
@@ -348,19 +349,11 @@ inputHelper
     -> InputSettings
     -> Text
     -- ^ The Dhall program
-    -> IO (Expr Src Void)
+    -> IO (Expr Src Void, [FilePath])
     -- ^ The fully normalized AST
 inputHelper annotate settings txt = do
     expr  <- Core.throws (Dhall.Parser.exprFromText (view sourceName settings) txt)
-
-    print expr
-    paths <- extractPaths expr
-    -- it seems that runQ gives us a slightly-broken Q context, and we will have
-    -- to pass these paths back to the original splice containing this runIO:
-    TH.runQ $
-      for_ paths $ \p ->
-        TH.addDependentFile p
-    print paths
+    importedFilePaths <- extractPaths expr
 
     let InputSettings {..} = settings
 
@@ -378,7 +371,7 @@ inputHelper annotate settings txt = do
     let substituted = Dhall.Substitution.substitute expr' $ view substitutions settings
     let annot = annotate substituted
     _ <- Core.throws (Dhall.TypeCheck.typeWith (view startingContext settings) annot)
-    pure (Core.normalizeWith (view normalizer settings) substituted)
+    pure (Core.normalizeWith (view normalizer settings) substituted, importedFilePaths)
 
 -- | Use this function to extract Haskell values directly from Dhall AST.
 --   The intended use case is to allow easy extraction of Dhall values for
