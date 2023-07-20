@@ -47,6 +47,8 @@ module Dhall
     , rawInput
     ) where
 
+import qualified Language.Haskell.TH.Syntax as TH
+import qualified Language.Haskell.TH as TH
 import Control.Applicative    (Alternative, empty)
 import Control.Monad.Writer   (WriterT, execWriterT, tell)
 import Data.Either.Validation (Validation (..))
@@ -350,6 +352,15 @@ inputHelper
     -- ^ The fully normalized AST
 inputHelper annotate settings txt = do
     expr  <- Core.throws (Dhall.Parser.exprFromText (view sourceName settings) txt)
+
+    print expr
+    paths <- extractPaths expr
+    -- it seems that runQ gives us a slightly-broken Q context, and we will have
+    -- to pass these paths back to the original splice containing this runIO:
+    TH.runQ $
+      for_ paths $ \p ->
+        TH.addDependentFile p
+    print paths
 
     let InputSettings {..} = settings
 
