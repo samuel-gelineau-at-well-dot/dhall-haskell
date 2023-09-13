@@ -109,6 +109,7 @@ module Dhall.Import (
     , loadRelativeTo
     , loadWithStatus
     , loadWith
+    , loadWithFilePaths
     , localToPath
     , hashExpression
     , hashExpressionToCode
@@ -1193,7 +1194,11 @@ remoteStatusWithManager newManager url =
     supply
 -}
 loadWith :: Expr Src Import -> StateT Status IO (Expr Src Void)
-loadWith expr₀ = case expr₀ of
+--todo: fix this
+loadWith = fmap fst <$> loadWithFilePaths
+
+loadWithFilePaths :: Expr Src Import -> StateT Status IO (Expr Src Void, [FilePath])
+loadWithFilePaths expr₀ = case expr₀ of
   Embed import₀ -> do
     Status {..} <- State.get
 
@@ -1227,8 +1232,8 @@ loadWith expr₀ = case expr₀ of
     zoom stack (State.put stackWithChild)
     ImportSemantics {..} <- loadImport child
     zoom stack (State.put _stack)
-
-    return (Core.renote importSemantics)
+    extractedPaths <- extractPaths import₀
+    return (Core.renote importSemantics, extractedPaths)
 
   ImportAlt a b -> loadWith a `catch` handler₀
     where

@@ -24,6 +24,7 @@ module Dhall
     , inputFileWithSettings
     , inputExpr
     , inputExprWithSettings
+    , inputExprWithImportedFilePaths
     , rootDirectory
     , sourceName
     , startingContext
@@ -62,6 +63,7 @@ import GHC.Generics
 import Lens.Family            (LensLike', view)
 import Prelude                hiding (maybe, sequence)
 import System.FilePath        (takeDirectory)
+import Data.Functor.Identity  (runIdentity)
 
 import qualified Control.Exception
 import qualified Control.Monad.Trans.State.Strict as State
@@ -346,16 +348,15 @@ inputExprWithSettingsAndImportedLocalFiles
 inputExprWithSettingsAndImportedLocalFiles = inputHelper id
 
 extractPaths :: Expr Src Core.Import -> IO [FilePath]
-extractPaths expr = execWriterT $ do
-  for_ expr $ \import_ -> do
-     importToFilePaths . Core.importType . Core.importHashed $ import_
+extractPaths import_ = do
+    importToFilePaths . Core.importType . Core.importHashed $ import_
   where
-    importToFilePaths :: Core.ImportType -> WriterT [FilePath] IO ()
+    importToFilePaths :: Core.ImportType ->  IO [FilePath]
     importToFilePaths (Core.Local filePrefix file) = do
       path <- Dhall.Import.localToPath filePrefix file
-      tell [path]
+      pure [path]
     importToFilePaths _ = do
-      pure ()
+      pure []
 
 
 {-| Helper function for the input* function family
@@ -371,11 +372,19 @@ inputHelper
     -- ^ The fully normalized AST
 inputHelper annotate settings txt = do
     expr  <- Core.throws (Dhall.Parser.exprFromText (view sourceName settings) txt)
-    importedFilePaths <- extractPaths expr
+
+    print "warlocks: expr"
+    print expr
+
 
     let InputSettings {..} = settings
 
     let EvaluateSettings {..} = _evaluateSettings
+    for_ _normalizer $ \(reifiedNormalizer) -> do
+      let verboseNormalizer :: Core.NormalizerM IO Core.Import -- (Expr Src Void)
+          verboseNormalizer e = do
+            pure $ runIdentity ((Core.getReifiedNormalizer reifiedNormalizer) e)
+      Core.normalizeWithM (verboseNormalizer) expr
 
     let transform =
                Lens.Family.set Dhall.Import.substitutions   _substitutions
@@ -384,10 +393,17 @@ inputHelper annotate settings txt = do
 
     let status = transform (Dhall.Import.emptyStatusWithManager _newManager _rootDirectory)
 
-    expr' <- State.evalStateT (Dhall.Import.loadWith expr) status
+    (expr', importedFilePaths) <- State.evalStateT (Dhall.Import.loadWith expr) status
+
+    print "warlocks: expr'"
+    print expr'
 
     let substituted = Dhall.Substitution.substitute expr' $ view substitutions settings
+    print "warlocks: substituted "
+    print substituted
     let annot = annotate substituted
+    print "warlocks: annot "
+    print annot
     _ <- Core.throws (Dhall.TypeCheck.typeWith (view startingContext settings) annot)
     pure (Core.normalizeWith (view normalizer settings) substituted, importedFilePaths)
 
